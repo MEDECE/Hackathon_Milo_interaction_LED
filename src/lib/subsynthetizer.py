@@ -1,40 +1,6 @@
 import ollama
 from pathlib import Path
 import re
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-# ==============================================================
-# ⚙️  CONFIGURATION DU MODELE DE REFLEXION (SLM)
-# ==============================================================
-
-print("Chargement du modèle d'analyse Granite (SLM)...")
-try:
-    GRANITE_MODEL_ID = "ibm-granite/granite-3.1-2b-instruct"
-
-    tokenizer_granite = AutoTokenizer.from_pretrained(GRANITE_MODEL_ID)
-    try:
-        model_granite = AutoModelForCausalLM.from_pretrained(
-            GRANITE_MODEL_ID,
-            dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto",
-            low_cpu_mem_usage=True
-        )
-    except Exception as e:
-        print(f"⚠️ Erreur mémoire, tentative de disk_offload : {e}")
-        from transformers import disk_offload
-        model_granite = AutoModelForCausalLM.from_pretrained(
-            GRANITE_MODEL_ID,
-            dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto",
-            low_cpu_mem_usage=True
-        )
-        disk_offload(model_granite, offload_folder="./granite_offload")
-    print("✅ Modèle Granite chargé avec succès !")
-except Exception as e:
-    print(f"⚠️ Erreur lors du chargement du modèle Granite : {e}")
-    model_granite = None
-    tokenizer_granite = None
 
 # ==============================================================
 # 🔍  FONCTION D’ANALYSE DE COHERENCE (BACK ANALYSIS)
@@ -57,38 +23,17 @@ def coherence_score(question: str, answer: str):
     Score de cohérence :
     """.strip()
 
-    # Si Granite est disponible, l'utiliser et décoder seulement la partie générée
-    if model_granite and tokenizer_granite:
-        try:
-            inputs = tokenizer_granite(prompt, return_tensors="pt")
-            # envoyer les tenseurs sur le bon device
-            inputs = {k: v.to(model_granite.device) for k, v in inputs.items()}
-            outputs = model_granite.generate(
-                **inputs,
-                max_new_tokens=16,
-                temperature=0.0,
-                do_sample=False
-            )
-            # découper pour ne décoder que les tokens générés (évite de parser le prompt)
-            input_len = inputs["input_ids"].shape[-1]
-            gen_tokens = outputs[0][input_len:] if outputs.shape[1] > input_len else outputs[0]
-            result = tokenizer_granite.decode(gen_tokens, skip_special_tokens=True).strip()
-        except Exception as e:
-            print(f"⚠️ Erreur pendant la génération Granite : {e}")
-            result = ""
-    
-    else:
-        # Fallback : essayer via ollama si Granite local n'est pas present
-        print("⚠️ Modèle Granite non chargé localement, tentative de fallback via ollama...")
-        try:
-            resp = ollama.chat(
-                model="ibm-granite/granite-3.1-2b-instruct",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            result = resp.get("message", {}).get("content", "").strip()
-        except Exception as e:
-            print(f"⚠️ Fallback via ollama a échoué : {e}")
-            result = ""
+    # Utilisation directe d'Ollama avec le modèle 'llama2' pour le score de cohérence
+    print("Utilisation du modèle 'nchapman/ministral-8b-instruct-2410:8b' via Ollama pour le score de cohérence...")
+    try:
+        resp = ollama.chat(
+            model="nchapman/ministral-8b-instruct-2410:8b",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        result = resp.get("message", {}).get("content", "").strip()
+    except Exception as e:
+        print(f"⚠️ Erreur Ollama : {e}")
+        result = ""
 
     if not result:
         print("⚠️ Aucune sortie d'evaluation obtenue, retour par défaut : 0")

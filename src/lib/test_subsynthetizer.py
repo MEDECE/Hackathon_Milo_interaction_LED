@@ -4,7 +4,7 @@ from .subsynthetizer import SubSynthesizer
 
 synthetizer = SubSynthesizer()
 
-question = "est ce que 1+1 =1?"
+question = "est tu masculin ou feminine?"
 response, coherence = synthetizer.analyze_prompt(question)
 
 print("\n✅ Réponse :", response)
