@@ -8,26 +8,26 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 print("Chargement du modèle d'analyse Qwen3 (SLM)...")
 try:
-    GRANITE_MODEL_ID = "Qwen/Qwen3-0.6B"
+    QWEN3_MODEL_ID = "Qwen/Qwen3-0.6B"
 
-    tokenizer_granite = AutoTokenizer.from_pretrained(GRANITE_MODEL_ID)
-    model_granite = AutoModelForCausalLM.from_pretrained(
-        GRANITE_MODEL_ID,
+    tokenizer_qwen3 = AutoTokenizer.from_pretrained(QWEN3_MODEL_ID)
+    model_qwen3 = AutoModelForCausalLM.from_pretrained(
+        QWEN3_MODEL_ID,
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map="auto"
     )
     print("✅ Modèle Qwen3 chargé avec succès !")
 except Exception as e:
-    print(f"⚠️ Erreur lors du chargement du modèle Granite : {e}")
-    model_granite = None
-    tokenizer_granite = None
+    print(f"⚠️ Erreur lors du chargement du modèle Qwen3 : {e}")
+    model_qwen3 = None
+    tokenizer_qwen3 = None
 
 
 # FONCTION D’ANALYSE DE COHERENCE (BACK ANALYSE)
 
 def coherence_score(question: str, answer: str):
     """
-    Utilise le modèle Granite (SLM) pour attribuer un score de cohérence (0-100)
+    Utilise le modèle Qwen3 pour attribuer un score de cohérence (0-100)
     à la réponse produite par le LLM.
     """
     prompt = f"""
@@ -42,13 +42,13 @@ def coherence_score(question: str, answer: str):
     Score de cohérence :
     """.strip()
 
-    # Si Granite est disponible, l'utiliser et décoder seulement la partie générée
-    if model_granite and tokenizer_granite:
+    # Si Qwen3 est disponible, l'utiliser et décoder seulement la partie générée
+    if model_qwen3 and tokenizer_qwen3:
         try:
-            inputs = tokenizer_granite(prompt, return_tensors="pt")
+            inputs = tokenizer_qwen3(prompt, return_tensors="pt")
             # envoyer les tenseurs sur le bon device
-            inputs = {k: v.to(model_granite.device) for k, v in inputs.items()}
-            outputs = model_granite.generate(
+            inputs = {k: v.to(model_qwen3.device) for k, v in inputs.items()}
+            outputs = model_qwen3.generate(
                 **inputs,
                 max_new_tokens=16,
                 temperature=0.0,
@@ -57,14 +57,14 @@ def coherence_score(question: str, answer: str):
             # découper pour ne décoder que les tokens générés (évite de parser le prompt)
             input_len = inputs["input_ids"].shape[-1]
             gen_tokens = outputs[0][input_len:] if outputs.shape[1] > input_len else outputs[0]
-            result = tokenizer_granite.decode(gen_tokens, skip_special_tokens=True).strip()
+            result = tokenizer_qwen3.decode(gen_tokens, skip_special_tokens=True).strip()
         except Exception as e:
-            print(f"⚠️ Erreur pendant la génération Granite : {e}")
+            print(f"⚠️ Erreur pendant la génération Qwen3 : {e}")
             result = ""
     
     else:
-        # Fallback : essayer via ollama si Granite local n'est pas present
-        print("⚠️ Modèle Granite non chargé localement, tentative de fallback via ollama...")
+        # Fallback : essayer via ollama si Qwen3 local n'est pas present
+        print("⚠️ Modèle Qwen3 non chargé localement, tentative de fallback via ollama...")
         try:
             resp = ollama.chat(
                 model="Qwen/Qwen3-0.6B",
@@ -250,18 +250,18 @@ Résumé du transcript :
         """
         raw_text = ""
 
-        if model_granite and tokenizer_granite:
+        if model_qwen3 and tokenizer_qwen3:
             try:
                 # Construire le prompt effectif
                 effective_system_prompt = self.question_prompt() if isQuestion else self.system_prompt
                 full_prompt = effective_system_prompt + "\n" + prompt
 
                 # Tokenizer et envoi sur le bon device
-                inputs = tokenizer_granite(full_prompt, return_tensors="pt")
-                inputs = {k: v.to(model_granite.device) for k, v in inputs.items()}
+                inputs = tokenizer_qwen3(full_prompt, return_tensors="pt")
+                inputs = {k: v.to(model_qwen3.device) for k, v in inputs.items()}
 
                 # Génération avec le modèle
-                outputs = model_granite.generate(
+                outputs = model_qwen3.generate(
                     **inputs,
                     max_new_tokens=128,
                     temperature=0.0,
@@ -269,13 +269,13 @@ Résumé du transcript :
                 )
 
                 # Décoder le texte généré
-                raw_text = tokenizer_granite.decode(outputs[0], skip_special_tokens=True)
+                raw_text = tokenizer_qwen3.decode(outputs[0], skip_special_tokens=True)
 
                 # Si le modèle renvoie tout le prompt, on peut retirer la partie du prompt
                 input_len = inputs["input_ids"].shape[-1]
                 if outputs.shape[1] > input_len:
                     gen_tokens = outputs[0][input_len:]
-                    raw_text = tokenizer_granite.decode(gen_tokens, skip_special_tokens=True)
+                    raw_text = tokenizer_qwen3.decode(gen_tokens, skip_special_tokens=True)
 
             except Exception as e:
                 print(f"[WARN] Erreur lors de la génération locale : {e}")
