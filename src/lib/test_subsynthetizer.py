@@ -2,7 +2,7 @@ from subsynthetizer import SubSynthesizer
 
 synthetizer = SubSynthesizer()
 
-question = "Que sais-tu de l'ECE Paris ?"
+question = "Comment t'appelles-tu ?"
 response, coherence = synthetizer.analyze_prompt(question)
 
 print("\n✅ Réponse :", response)

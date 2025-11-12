@@ -4,30 +4,26 @@ import re
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# ==============================================================
-# ⚙️  CONFIGURATION DU MODELE DE REFLEXION (SLM)
-# ==============================================================
+# CONFIGURATION DU MODELE DE REFLEXION (SLM)
 
-print("Chargement du modèle d'analyse Granite (SLM)...")
+print("Chargement du modèle d'analyse Qwen3 (SLM)...")
 try:
-    GRANITE_MODEL_ID = "ibm-granite/granite-3.1-2b-instruct"
+    GRANITE_MODEL_ID = "Qwen/Qwen3-0.6B"
 
     tokenizer_granite = AutoTokenizer.from_pretrained(GRANITE_MODEL_ID)
     model_granite = AutoModelForCausalLM.from_pretrained(
         GRANITE_MODEL_ID,
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map="auto",
-        low_cpu_mem_usage=True
+        device_map="auto"
     )
-    print("✅ Modèle Granite chargé avec succès !")
+    print("✅ Modèle Qwen3 chargé avec succès !")
 except Exception as e:
     print(f"⚠️ Erreur lors du chargement du modèle Granite : {e}")
     model_granite = None
     tokenizer_granite = None
 
-# ==============================================================
-# 🔍  FONCTION D’ANALYSE DE COHERENCE (BACK ANALYSIS)
-# ==============================================================
+
+# FONCTION D’ANALYSE DE COHERENCE (BACK ANALYSE)
 
 def coherence_score(question: str, answer: str):
     """
@@ -71,7 +67,7 @@ def coherence_score(question: str, answer: str):
         print("⚠️ Modèle Granite non chargé localement, tentative de fallback via ollama...")
         try:
             resp = ollama.chat(
-                model="ibm-granite/granite-3.1-2b-instruct",
+                model="Qwen/Qwen3-0.6B",
                 messages=[{"role": "user", "content": prompt}]
             )
             result = resp.get("message", {}).get("content", "").strip()
@@ -93,10 +89,7 @@ def coherence_score(question: str, answer: str):
         return 0
 
 
-# ==============================================================
-# 💬  PROMPTS ET CLASSE D’ORIGINE (LLM PRINCIPAL)
-# ==============================================================
-
+# PROMPTS ET CLASSE D’ORIGINE (LLM PRINCIPAL)
 
 rag_info="""
 Tu es Milo, une élève étdudiante en première année d'école d'ingénieure à l'ECE Paris. Tu fais partie du BDE et de l'Intelligence Lab. Tu n'es pas une assistante virtuelle, tu es une étudiante qui aime aider les autres camarades à réussir, en gardant le sourire (et parfois un petit smiley bien placé). Tu n'es pas un humain, mais une intelligence artificielle qui se présente et s'exprime au féminin.
@@ -205,7 +198,7 @@ Tu es une assistante spécialisée dans la synthèse de contenu oral. Ton rôle 
 """
 
 class SubSynthesizer:
-    def __init__(self, model="nchapman/ministral-8b-instruct-2410:8b", system_prompt=None):
+    def __init__(self, model="qwen3:0.6B", system_prompt=None):
         self.transcripts_dir = Path(__file__).resolve().parent.parent.parent / "synthetiser" / "transcripts"
         self.output_dir = Path(__file__).resolve().parent.parent.parent / "synthetiser" / "sub_resumes"
         self.output_dir.mkdir(parents=True,exist_ok=True)
@@ -231,10 +224,11 @@ class SubSynthesizer:
 
                 base_prompt += f"""
 Contexte additionnel :
-**IMPORTANT PRENDS LE TRANSCRIPT SUIVANT EN COMPTE DANS TES REPONSE**
-Voici le résumé de la transcription audio du cours du professeur/de la conversation (tu peux l'utiliser pour répondre
-si la question porte sur ce contenu) :
+Voici un résumé de la transcription audio (informations de contexte uniquement). 
+Utilise ces informations **uniquement si elles sont pertinentes pour répondre à la question**.
+Ne liste pas tous les sujets. Réponds directement à la question de manière concise.
 
+Résumé du transcript :
 {transcript_final}
 
 
@@ -250,58 +244,51 @@ si la question porte sur ce contenu) :
         return re.sub(r"[^a-zA-Z0-9éèêëàâîïôùûçÉÈÊËÀÂÎÏÔÙÛÇ.,;:!?' \n-]","",text)
 
     def run_ollama(self, prompt: str, isQuestion: bool = False) -> str:
-
-       # effective_system_prompt = self.question_prompt() if isQuestion else self.default_prompt()
-      #  print(effective_system_prompt)
-     #   print(prompt)
-     #   response = ollama.chat(
-    #        model=self.model,
-     #       messages=[
-            #    {"role": "system", "content": effective_system_prompt},
-    #            {"role": "user", "content": prompt}
-     #       ]
-    #    )
-    #    raw_text = response["message"]["content"]
-    #    return self.clean_text_for_tts(raw_text)
-        # construire et envoyer le system prompt pour appliquer le RAG
-        effective_system_prompt = self.question_prompt() if isQuestion else self.system_prompt
-        try:
-            response = ollama.chat(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": effective_system_prompt},
-                    {"role": "user", "content": prompt}
-                ]
-            )
-        except Exception as e:
-            print(f"[WARN] ollama.chat failed: {e}")
-            return ""
-        
-        # extraire le contenu de façon robuste et nettoyer pour TTS
+        """
+        Génère une réponse en utilisant le modèle local Granite (Qwen3).
+        Si Granite n'est pas chargé, renvoie une chaîne vide.
+        """
         raw_text = ""
-        if isinstance(response, dict):
-            raw_text = response.get("message", {}).get("content", "") or ""
+
+        if model_granite and tokenizer_granite:
+            try:
+                # Construire le prompt effectif
+                effective_system_prompt = self.question_prompt() if isQuestion else self.system_prompt
+                full_prompt = effective_system_prompt + "\n" + prompt
+
+                # Tokenizer et envoi sur le bon device
+                inputs = tokenizer_granite(full_prompt, return_tensors="pt")
+                inputs = {k: v.to(model_granite.device) for k, v in inputs.items()}
+
+                # Génération avec le modèle
+                outputs = model_granite.generate(
+                    **inputs,
+                    max_new_tokens=128,
+                    temperature=0.0,
+                    do_sample=False
+                )
+
+                # Décoder le texte généré
+                raw_text = tokenizer_granite.decode(outputs[0], skip_special_tokens=True)
+
+                # Si le modèle renvoie tout le prompt, on peut retirer la partie du prompt
+                input_len = inputs["input_ids"].shape[-1]
+                if outputs.shape[1] > input_len:
+                    gen_tokens = outputs[0][input_len:]
+                    raw_text = tokenizer_granite.decode(gen_tokens, skip_special_tokens=True)
+
+            except Exception as e:
+                print(f"[WARN] Erreur lors de la génération locale : {e}")
+                raw_text = ""
         else:
-            s = str(response)
-            # si la string contient un champ "content", extraire ce qui suit jusqu'au prochain marqueur connu
-            if "content" in s:
-                start = s.find("content") + len("content")
-                # marqueurs d'arrêt fréquents observés dans la stringifiée d'ollama
-                terminals = ["thinking", "images", "toolname", "toolcalls", "role", "message"]
-                end_positions = [pos for pos in (s.find(t, start) for t in terminals) if pos != -1]
-                end = min(end_positions) if end_positions else len(s)
-                raw_text = s[start:end]
-            else:
-                # fallback : on prend toute la string
-                raw_text = s
-        
-        # --- CHANGEMENT: dés-échaper les séquences littérales comme "\n" -> saut de ligne ---
+            print("⚠️ Modèle local non chargé, impossible de générer une réponse.")
+            raw_text = ""
+
+        # Nettoyage pour TTS : suppression des caractères interdits
         raw_text = raw_text.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
-
-        # strip des guillemets, deux-points et espaces superflus en début/fin
         raw_text = raw_text.strip(" '\":\n\t")
-
         return self.clean_text_for_tts(raw_text)
+
     
 
     def generate_from_file(self, transcript_path: Path, isQuestion: bool = False, output_dir: Path = None):
@@ -322,13 +309,11 @@ si la question porte sur ce contenu) :
 
         result = self.run_ollama(effective_prompt, isQuestion)
 
-        # === 🚨 NOUVELLE PARTIE : ANALYSE DE COHÉRENCE ===
+        # ANALYSE DE COHÉRENCE
         if isQuestion:
             coherence = coherence_score(transcript, result)
             print(f"📊 Score de cohérence : {coherence}%")
 
-            # Ici tu pourras plus tard connecter ce score à ton système de LEDs :
-            # ex : if coherence > 80 → vert / entre 50-80 → bleu / < 50 → rouge
 
         target_dir = Path(output_dir) if output_dir else self.output_dir
         target_dir.mkdir(exist_ok=True, parents=True)
@@ -343,10 +328,10 @@ si la question porte sur ce contenu) :
     
     def analyze_prompt(self, question: str):
         """Pose une question au LLM et renvoie la réponse et le score de cohérence du SLM."""
-        # 1️⃣ Génération de la réponse par le LLM
+        # Génération de la réponse par le LLM
         response = self.run_ollama(question, isQuestion=True)
 
-        # 2️⃣ Évaluation de la cohérence par Granite
+        # Évaluation de la cohérence par Granite
         score = coherence_score(question, response)
 
         return response, score
