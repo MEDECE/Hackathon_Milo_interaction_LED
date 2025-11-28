@@ -1,0 +1,12 @@
+{
+    "servers": {
+        "hugging-face": {
+            "url": "https://huggingface.co/mcp?login",
+            "type": "http"
+        },
+        "context7": {
+            "url": "https://mcp.context7.com/mcp",
+            "type": "http"
+        }
+    }
+}
